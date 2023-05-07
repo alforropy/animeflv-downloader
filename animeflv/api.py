@@ -1,12 +1,20 @@
 import requests
+import os
 import bs4
 import re
 from tqdm import tqdm
 from pathlib import Path
 import time
 import json
-from selenium.webdriver import Firefox, FirefoxOptions
-
+from selenium.webdriver import Chrome, Firefox, FirefoxOptions, FirefoxProfile
+from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
+from selenium.webdriver.firefox.service import Service
+from selenium.webdriver.firefox.options import Options
+profile = FirefoxProfile()
+profile.set_preference("browser.download.folderList", 2)
+profile.set_preference("browser.download.manager.showWhenStarting", False)
+profile.set_preference("browser.download.dir", "./")
+profile.set_preference("browser.helperApps.neverAsk.saveToDisk", "application/octet-stream")
 
 def search_anime(query: str, find_details:bool = True):
     print(f"Searching query: {query}")
@@ -44,7 +52,7 @@ def find_details(anime_id:str):
 
 def download_one(title: str, chapter: int, output_path: str, return_url:bool=False, override:bool = False):
     print(f"Downloading {title}-{chapter}")
-
+    current_dir = os.getcwd()
     path = Path(output_path) / f"{title}-{chapter}.mp4"
 
     if path.exists():
@@ -53,22 +61,27 @@ def download_one(title: str, chapter: int, output_path: str, return_url:bool=Fal
             return
 
     print("Downloading AnimeFLV.net webpage")
-    html = requests.get(f"https://www3.animeflv.net/ver/{title}-{chapter}").text
-
+    dr = Firefox()
+    dr.get(f"https://www3.animeflv.net/ver/{title}-{chapter}")
+    bs = bs4.BeautifulSoup(dr.page_source,"lxml")
+    html = dr.page_source
     print("Looking for GoCDN link")
 
     soup = bs4.BeautifulSoup(html, features="html.parser")
     lines = str(soup).split("\n")
-
     for l in lines:
         if l.strip().startswith("var videos = {"):
             break
 
     l = l.strip()
+    dr.close()
     data = json.loads(l[13:-1])
+
     for d in data["SUB"]:
-        if d["server"] == "gocdn":
+        print(d)
+        if d["server"] == "yu":
             break
+
 
     url = d["code"]
 
@@ -76,34 +89,27 @@ def download_one(title: str, chapter: int, output_path: str, return_url:bool=Fal
     print(url)
 
     print("Opening Firefox (for later...)")
-    options = FirefoxOptions()
-    options.headless = True
-    driver = Firefox(executable_path=Path(__file__).parent / "geckodriver", options=options)
 
+    profile.set_preference("browser.download.dir", current_dir+'/'+ title)
+    driver = Firefox(firefox_profile=profile)
     print("Getting the URL")
+
+    url = url.replace("embed","watch")
     driver.get(url)
 
     print("Clicking the play button")
-    play = driver.find_element_by_css_selector("img#start")
-    play.click()
+    play = driver.find_element_by_link_text("Download")
+    driver.execute_script("arguments[0].click();", play)
 
-    time.sleep(3)
 
-    video_obj = driver.find_element_by_css_selector("video.jw-video")
-    video_url = video_obj.get_attribute("src")
+    time.sleep(5)
 
-    print("Found video link")
-    print(video_url)
+    play = driver.find_element_by_link_text("Download")
+    driver.execute_script("arguments[0].click();", play)    
+    time.sleep(300)
     driver.close()
-
-    if return_url:
-        return video_url
-
-    print("Downloading video")
-    
-    stream = requests.get(video_url, stream=True)
-    total_size = int(stream.headers.get('content-length', 0))
-    
+    return path    
+'''
     if path.exists():
         print(f"(!) Overwriting {path}")
 
@@ -118,3 +124,4 @@ def download_one(title: str, chapter: int, output_path: str, return_url:bool=Fal
         raise
 
     return path
+'''
